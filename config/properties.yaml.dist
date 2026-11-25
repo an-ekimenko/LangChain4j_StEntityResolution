@@ -1,0 +1,20 @@
+sspace_type:
+  # Source MS SQL view (switch between monthly CHNG and full historical view)
+  source_view: "[YOUR_SOURCE_DB].[dbo].[YOUR_DIRTY_UNITS_VIEW]"
+
+  # Database retry boundary constraints (Exponential Backoff with Jitter)
+  # max_timeout_ms     - Total maximum time budget (in ms) allocated to write data to DB
+  # initial_timeout_ms - Base delay interval (in ms) before the first retry attempt
+  db_retry:
+    max_timeout_ms: 300000
+    initial_timeout_ms: 10000
+
+  # Local LLM inference settings (Ollama / vLLM endpoint)
+  llm:
+    base_url: "http://YOUR_OLLAMA_HOST:11434"
+    model_name: "qwen2.5:7b"
+    temperature: 0.0
+    num_ctx: 2048
+    batch_size: 20
+    timeout_seconds: 180
+    max_retries: 3

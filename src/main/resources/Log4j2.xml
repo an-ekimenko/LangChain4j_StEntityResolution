@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- TRACE | DEBUG | INFO | WARN | ERROR | FATAL  - and also ALL|OFF enabling/disabling all levels respectively -->
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+
+  <Properties>
+    <!-- If the log.dir variable is not passed via -Dlog.dir, 
+         logs are written to the logs folder next to the launch directory. -->
+    <Property name="logDir">${sys:log.dir:-${sys:user.dir}/logs}</Property>
+  </Properties>
+
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+    </Console>
+
+    <File name="commons-log" fileName="${logDir}/commons.log" append="false">
+      <PatternLayout pattern="[%-5level] %d{yyyy-MM-dd HH:mm:ss} [%t] %c - %msg%n"/>
+    </File>
+
+    <File name="p6spy" fileName="${logDir}/p6spy.log" append="false">
+      <PatternLayout pattern="[%-5level] %d{yyyy-MM-dd HH:mm:ss} [%t] %c - %msg%n"/>
+    </File>
+  </Appenders>
+
+  <Loggers>
+    <!-- Suppress verbose Hibernate startup logs -->
+    <Logger name="org.hibernate" level="warn" additivity="false">
+      <AppenderRef ref="commons-log"/>
+    </Logger>
+
+    <!-- Route P6Spy SQL logs to dedicated file -->
+    <Logger name="p6spy" level="info" additivity="false">
+      <AppenderRef ref="p6spy"/>
+    </Logger>
+
+    <!-- Application-level logging -->
+    <Logger name="by.beloil.ai.mdm" level="debug" additivity="false">
+      <AppenderRef ref="Console"/>
+      <AppenderRef ref="commons-log"/>
+    </Logger>
+
+    <!-- Optional: enable DEBUG for LangChain4j to inspect raw HTTP payloads to Ollama -->
+    <Logger name="dev.langchain4j" level="info" additivity="false">
+      <AppenderRef ref="Console"/>
+      <AppenderRef ref="commons-log"/>
+    </Logger>
+
+    <Root level="info">
+      <AppenderRef ref="Console"/>
+      <AppenderRef ref="commons-log"/>
+    </Root>
+  </Loggers>
+</Configuration>
