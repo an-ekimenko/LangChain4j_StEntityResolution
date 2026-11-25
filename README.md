@@ -112,13 +112,12 @@ LangChain4j_StEntityResolution/
 
 ## 🚀 Setup & Execution
 
-### 1. Prerequisites
-* **Java 17+ (LTS)** & **Apache Maven 3.8+**
-  * *Why Java 17:* Serves as the mandatory runtime baseline for **LangChain4j 1.x**, **Hibernate ORM 6**, and **Google Guice 7**. It provides native support for immutable `record` types (used for strict LLM JSON Schema generation), multi-line `Text Blocks` (for maintainable system prompts and SQL queries), and `Pattern Matching for instanceof`, while offering predictable G1GC memory management alongside memory-intensive local LLM inference.
-* **Ollama** running locally or on an internal inference node with the target model pulled:
-  ```bash
-  ollama pull qwen2.5:7b
-  ```
+### 🛠️ Prerequisites
+* **Java:** JDK 17 or higher *(required by LangChain4j 1.x, Google Guice 7, Hibernate 6+, immutable `record` schemas for structured LLM outputs, and LTS G1GC memory efficiency)*
+* **AI Inference Engine:** Ollama running locally or on an internal node with the target model pulled (`ollama pull qwen2.5:7b`)
+* **Database:** MS SQL Server
+* **Build System:** Apache Maven 3.8+
+
 
 ### 2. Configuration
 Copy the `.dist` templates in `config/` and remove the `.dist` extension:
