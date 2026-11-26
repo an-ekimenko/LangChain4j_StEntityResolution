@@ -27,7 +27,8 @@ public class MainLauncher {
     /**
      * Launches the unit of measurement entity resolution batch job.
      *
-     * @param args optional command-line arguments; {@code args[0]} overrides the configured source view name
+     * @param args optional command-line arguments; pass {@code fsv} as {@code args[0]} to process
+     *             the full historical source view instead of the default incremental delta view
      */
     public static void main(String[] args) {
         long startTime = System.currentTimeMillis();
@@ -42,10 +43,15 @@ public class MainLauncher {
             sessionFactory = injector.getInstance(SessionFactory.class);
             EntityResolutionPipeline pipeline = injector.getInstance(EntityResolutionPipeline.class);
 
-            // Allow overriding the source view name via the first CLI argument (e.g., for historical backfills)
-            String targetView = (args.length > 0 && !args[0].isBlank())
-                    ? args[0]
-                    : config.getSpaceType().getSourceView();
+            // Resolve the target database view based on the optional 'fsv' (full source view) CLI flag
+            String targetView;
+            if (args.length > 0 && args[0] != null && "fsv".equalsIgnoreCase(args[0].trim())) {
+                targetView = config.getSpaceType().getFullSourceView();
+                log.info("Full historical load mode (fsv) activated. Target view: {}", targetView);
+            } else {
+                targetView = config.getSpaceType().getSourceView();
+                log.info("Standard incremental mode activated. Target view: {}", targetView);
+            }
 
             log.info("Starting LangChain4j_StEntityResolution for view: {}", targetView);
             processedCount = pipeline.execute(targetView);

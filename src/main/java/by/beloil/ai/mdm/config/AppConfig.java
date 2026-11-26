@@ -25,11 +25,18 @@ public class AppConfig {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class SpaceTypeConfig {
 
-        /**
-         * Name of the source database view containing raw wholesale goods records to process.
-         */
-        @JsonProperty("source_view")
-        private String sourceView;
+       /**
+        * Default incremental MS SQL source view (monthly delta) containing raw wholesale goods records.
+        */
+       @JsonProperty("source_view")
+       private String sourceView;
+
+       /**
+        * Full historical staging view containing all wholesale goods records 
+        * (triggered via the {@code fsv} CLI flag).
+        */
+       @JsonProperty("full_source_view")
+       private String fullSourceView;
 
         /**
          * Database resilience and retry policy parameters.

@@ -1,6 +1,8 @@
-sspace_type:
-  # Source MS SQL view (switch between monthly CHNG and full historical view)
-  source_view: "[YOUR_SOURCE_DB].[dbo].[YOUR_DIRTY_UNITS_VIEW]"
+space_type:
+  # Default incremental MS SQL source view (monthly delta)
+  source_view: "[YOUR_SOURCE_DB].[dbo].[YOUR_STAGING_DELTA_VIEW]"
+  # Full historical staging view (triggered via CLI flag: fsv)
+  full_source_view: "[YOUR_SOURCE_DB].[dbo].[YOUR_STAGING_FULL_VIEW]"
 
   # Database retry boundary constraints (Exponential Backoff with Jitter)
   # max_timeout_ms     - Total maximum time budget (in ms) allocated to write data to DB
