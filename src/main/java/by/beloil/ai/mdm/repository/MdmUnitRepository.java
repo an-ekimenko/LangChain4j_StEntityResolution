@@ -122,22 +122,31 @@ public class MdmUnitRepository {
     }
 
     /**
-     * Safely converts a JDBC date/timestamp object returned by a native query into a {@link LocalDateTime}.
+     * Safely converts a JDBC date/timestamp object or ISO-like string returned by a native query
+     * into a {@link LocalDateTime}.
      *
-     * @param dbValue raw column value from the result set
-     * @return converted {@link LocalDateTime}, or {@code null} if the database value is {@code null}
+     * @param dbValue raw column value from the database result set
+     * @return converted {@link LocalDateTime}, or {@code null} if the value is {@code null} or blank
      * @throws IllegalArgumentException if the returned object type is unsupported
      */
     private LocalDateTime toLocalDateTime(Object dbValue) {
-        if (dbValue == null) {
-            return null;
+        if (dbValue == null) return null;
+
+        if (dbValue instanceof LocalDateTime ldt) return ldt;
+
+        if (dbValue instanceof Timestamp ts) return ts.toLocalDateTime();
+
+        if (dbValue instanceof String str) {
+            String trimmed = str.trim();
+            if (trimmed.isEmpty()) return null;
+
+            // MS SQL frequently returns "yyyy-MM-dd HH:mm:ss[.SSS]" or ISO "yyyy-MM-dd'T'HH:mm:ss"
+            String normalized = trimmed.replace(' ', 'T');
+            return LocalDateTime.parse(normalized);
         }
-        if (dbValue instanceof LocalDateTime ldt) {
-            return ldt;
-        }
-        if (dbValue instanceof Timestamp ts) {
-            return ts.toLocalDateTime();
-        }
+
         throw new IllegalArgumentException("Unexpected date type returned from database: " + dbValue.getClass().getName());
     }
+
+
 }

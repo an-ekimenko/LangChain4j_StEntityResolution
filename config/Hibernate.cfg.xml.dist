@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE hibernate-configuration PUBLIC
-        "-//Hibernate/Hibernate Configuration DTD 3.0//EN"
-        "http://hibernate.org">
 <hibernate-configuration>
     <session-factory>
         <!-- HikariCP connection pool provider -->
-        <property name="hibernate.connection.provider_class">org.hibernate.hikaricp.internal.HikariCPConnectionProvider</property>
+        <property name="hibernate.connection.provider_class">hikari</property>
 
         <!-- P6Spy wrapper driver and base JDBC URL -->
         <property name="hibernate.connection.driver_class">com.p6spy.engine.spy.P6SpyDriver</property>
@@ -34,14 +31,18 @@
         <property name="hibernate.jdbc.batch_size">50</property>
         <property name="hibernate.order_inserts">true</property>
         <property name="hibernate.order_updates">true</property>
+        <property name="hibernate.jdbc.batch_versioned_data">true</property>
 
         <!-- SQL logging (disabled in favor of P6Spy) -->
         <property name="hibernate.show_sql">false</property>
         <property name="hibernate.format_sql">false</property>
         <property name="hibernate.highlight_sql">false</property>
 
-        <!-- Schema management (validate, update, create, create-drop, none) -->
+        <!-- Schema management (validate, update, create, create-drop, none). 
+             When starting, Hibernate will check that the corresponding tables in the database exist and 
+             that their columns exactly match the fields of the @Entity classes. -->
         <property name="hibernate.hbm2ddl.auto">validate</property>
     </session-factory>
 </hibernate-configuration>
+
         

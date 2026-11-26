@@ -17,6 +17,6 @@ space_type:
     model_name: "qwen2.5:7b"
     temperature: 0.0
     num_ctx: 2048
-    batch_size: 20
+    batch_size: 10
     timeout_seconds: 180
     max_retries: 3

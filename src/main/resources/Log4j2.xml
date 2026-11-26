@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- TRACE | DEBUG | INFO | WARN | ERROR | FATAL  - and also ALL|OFF enabling/disabling all levels respectively -->
-<?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
 
   <Properties>
-    <!-- If the log.dir variable is not passed via -Dlog.dir, 
-         logs are written to the logs folder next to the launch directory. -->
-    <Property name="logDir">${sys:log.dir:-${sys:user.dir}/logs}</Property>
+    <!-- Fallback to ./logs relative to working directory if -Dlog.dir is not specified -->
+    <Property name="logDir">${sys:log.dir:-logs}</Property>
   </Properties>
 
   <Appenders>
+
     <Console name="Console" target="SYSTEM_OUT">
       <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
     </Console>
