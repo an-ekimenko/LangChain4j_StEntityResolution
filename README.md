@@ -45,22 +45,18 @@ Instead of mutating volatile staging tables, this service maintains a lightweigh
 ```
 
 ### Core Storage Entities
-1. **`MDM_Unit_Dictionary` (`DirtyName` PK -> `CanonicalName`):**
-   * Stores unique string-level normalization rules.
-   * Ensures the LLM is invoked **only once** per unseen dirty string, minimizing CPU/GPU inference overhead.
-2. **`GoodsWholesale_AISpaceType` (`UIDDocument`, `Line` PK -> `SpaceType`, `DateStart`):**
-   * Stores document-line overrides **exclusively for records where the original unit differs from the canonical standard**.
-   * `DateStart` preserves the source document timestamp to enable fast index-based cleanup triggers when records are deleted from the upstream staging table.
+* **`MDM_Unit_Dictionary`:** Caches normalization rules to minimize LLM inference calls.
+* **`GoodsWholesale_AISpaceType`:** Manages record overrides and parses SAP BW dates into standard SQL datetime formats.
 
 ---
 
 ## 🛡️ Key Engineering Features
 
-* **Incremental Dictionary Caching:** Deduplicates incoming unit names against `MDM_Unit_Dictionary` before invoking LLM inference.
-* **Structured AI Outputs (`AiServices`):** Uses LangChain4j declarative interfaces with `temperature = 0.0` and strict JSON Schema enforcement (`Capability.RESPONSE_FORMAT_JSON_SCHEMA`) on local inference (`qwen2.5:7b`).
-* **Deterministic Numeric Guardrails (`NumericGuardrail`):** Audits LLM clusters via regex signature extraction (`\d+(?:[.,]\d+)?`) to automatically split hallucinated groupings (e.g., isolating `"бочка 175 кг"` from `"бочка 176 кг"`).
-* **Idempotent Delta Persistence & Resilience:** Executes a `LEFT JOIN` delta check prior to persistence, utilizing `HibernateBatchExecutor` with monotonic-clock (`System.nanoTime()`) exponential backoff and jitter.
-* **Shared-Dependency Deployment Topology:** Excludes third-party JARs from the main artifact, routing classpath dependencies to `../dependencies/` and emitting YAML execution receipts (`exchange/result.yaml`).
+* **Incremental Dictionary Caching:** Deduplicates unit names prior to LLM processing.
+* **Structured AI Outputs:** Employs LangChain4j with deterministic settings and strict JSON Schema enforcement on `qwen2.5:7b`.
+* **Deterministic Guardrails:** Utilizes composite signatures to handle anomalies across numbers, dimensions, and packaging.
+* **Idempotent Delta Persistence:** Executes delta checks via `HibernateBatchExecutor` with backoff and jitter.
+* **Shared-Dependency Deployment Topology:** Manages classpath dependencies and generates YAML execution receipts.
 
 ---
 
