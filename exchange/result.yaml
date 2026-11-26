@@ -1,6 +1,6 @@
 ---
 status: "FAILED"
-timestamp: "2026-11-26T09:28:54.1513626"
+timestamp: "2026-11-26T10:24:41.7732808"
 records_upserted: 0
-duration_ms: 435706
-error: "Unexpected date type returned from database: java.lang.String"
+duration_ms: 598939
+error: "Text '20261125' could not be parsed at index 0"

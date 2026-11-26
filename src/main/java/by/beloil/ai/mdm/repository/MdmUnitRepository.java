@@ -122,31 +122,39 @@ public class MdmUnitRepository {
     }
 
     /**
-     * Safely converts a JDBC date/timestamp object or ISO-like string returned by a native query
-     * into a {@link LocalDateTime}.
+     * Safely converts a JDBC date/timestamp object or formatted date string returned by a native query
+     * into a {@link LocalDateTime}. Supports native timestamp types, compact 8-digit SAP BW date strings
+     * ({@code yyyyMMdd}), and standard SQL/ISO datetime strings.
      *
      * @param dbValue raw column value from the database result set
      * @return converted {@link LocalDateTime}, or {@code null} if the value is {@code null} or blank
      * @throws IllegalArgumentException if the returned object type is unsupported
      */
     private LocalDateTime toLocalDateTime(Object dbValue) {
-        if (dbValue == null) return null;
-
-        if (dbValue instanceof LocalDateTime ldt) return ldt;
-
-        if (dbValue instanceof Timestamp ts) return ts.toLocalDateTime();
-
+        if (dbValue == null) {
+            return null;
+        }
+        if (dbValue instanceof LocalDateTime ldt) {
+            return ldt;
+        }
+        if (dbValue instanceof Timestamp ts) {
+            return ts.toLocalDateTime();
+        }
         if (dbValue instanceof String str) {
             String trimmed = str.trim();
-            if (trimmed.isEmpty()) return null;
-
-            // MS SQL frequently returns "yyyy-MM-dd HH:mm:ss[.SSS]" or ISO "yyyy-MM-dd'T'HH:mm:ss"
+            if (trimmed.isEmpty()) {
+                return null;
+            }
+            // Handle compact SAP BW 'yyyyMMdd' date format (e.g., '20261125')
+            if (trimmed.length() == 8 && trimmed.chars().allMatch(Character::isDigit)) {
+                return java.time.LocalDate.parse(trimmed, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+                        .atStartOfDay();
+            }
+            // Handle standard SQL 'yyyy-MM-dd HH:mm:ss' or ISO datetime formats
             String normalized = trimmed.replace(' ', 'T');
             return LocalDateTime.parse(normalized);
         }
-
         throw new IllegalArgumentException("Unexpected date type returned from database: " + dbValue.getClass().getName());
     }
-
 
 }

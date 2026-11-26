@@ -84,6 +84,7 @@ public class HibernateBatchExecutor {
     /**
      * Resilience wrapper implementing Exponential Backoff with Jitter,
      * enforcing an overall time budget tracked via monotonic {@link System#nanoTime()}.
+     * Non-transient errors (such as argument validation or date parsing failures) fail fast without retrying.
      *
      * @param operationName descriptive name of the operation for logging purposes
      * @param action        supplier encapsulating the database operation to execute
@@ -100,7 +101,12 @@ public class HibernateBatchExecutor {
             try {
                 return action.get();
             } catch (Exception ex) {
+                // Fail fast: parsing and invalid argument errors cannot be resolved by retrying DB queries
+                if (ex instanceof IllegalArgumentException || ex instanceof java.time.format.DateTimeParseException) {
+                    throw ex;
+                }
                 long elapsedNanos = System.nanoTime() - startNanos;
+
                 if (elapsedNanos >= maxBudgetNanos) {
                     log.error("Operation '{}' exhausted its retry time budget.", operationName, ex);
                     throw ex;
@@ -119,4 +125,5 @@ public class HibernateBatchExecutor {
             }
         }
     }
+
 }
