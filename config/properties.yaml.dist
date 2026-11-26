@@ -12,11 +12,12 @@ space_type:
     initial_timeout_ms: 10000
 
   # Local LLM inference settings (Ollama / vLLM endpoint)
-  llm:
-    base_url: "http://YOUR_OLLAMA_HOST:11434"
+    llm:
+    base_url: "http://localhost:11434"
     model_name: "qwen2.5:7b"
     temperature: 0.0
-    num_ctx: 2048
+    num_ctx: 1536
     batch_size: 10
-    timeout_seconds: 180
+    timeout_seconds: 300
     max_retries: 3
+

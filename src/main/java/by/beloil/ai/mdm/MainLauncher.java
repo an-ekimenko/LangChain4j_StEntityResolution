@@ -69,7 +69,10 @@ public class MainLauncher {
 
         if ("FAILED".equals(status)) {
             System.exit(1);
+        } else {
+            System.exit(0);
         }
+
     }
 
     /**
