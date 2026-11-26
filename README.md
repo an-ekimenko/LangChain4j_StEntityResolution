@@ -125,16 +125,25 @@ Copy the `.dist` templates in `config/` and remove the `.dist` extension:
 * `config/properties.yaml` — specify the source view (`GoodsWholesale_CHNG_DirtyST`), Ollama URL, `num_ctx`, and `batch_size`.
 
 ### 3. Build & Run
-Package the application (dependencies are automatically copied to `../dependencies/` and the executable JAR is placed in the project root):
-```bash
-mvn clean package
-java -jar LangChain4j_StEntityResolution.jar
-```
 
-To run a historical backfill against a full staging view, pass the view name as a CLI argument:
-```bash
-java -jar LangChain4j_StEntityResolution.jar "[KISjoinMDM].[dbo].[GoodsWholesale_DirtyST]"
-```
+1. **Start the local inference engine and ensure the model is loaded:**
+   ```bash
+   ollama serve
+   ollama run qwen2.5:7b
+   ```
+   *(If Ollama is already running as a background service, ensure the model is pulled via `ollama pull qwen2.5:7b` before starting the worker).*
+
+2. **Package and execute the application** *(dependencies are automatically copied to `../dependencies/` and the executable JAR is placed in the project root)*:
+   ```bash
+   mvn clean package
+   java -jar LangChain4j_StEntityResolution.jar
+   ```
+
+3. **Historical Backfill Mode (`fsv`):**
+   To run normalization against the full historical staging view (`full_source_view` defined in `properties.yaml`), pass the `fsv` (*Full Staging View*) CLI argument:
+   ```bash
+   java -jar LangChain4j_StEntityResolution.jar fsv
+   ```
 
 ### 4. Execution Receipt (`exchange/result.yaml`)
 Upon completion, the worker emits a structured status report for job schedulers:
