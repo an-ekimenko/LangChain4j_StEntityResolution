@@ -21,11 +21,12 @@
         <lombok.version>1.18.32</lombok.version>
         <jackson.version>2.17.0</jackson.version>
         <log4j2.version>2.23.1</log4j2.version>
+        <commons.text.version>1.15.0</commons.text.version>
         <slf4j-api.version>2.0.20</slf4j-api.version>
     </properties>
 
-    <dependencies>
-        <!-- LangChain4j Core & Ollama -->
+     <dependencies>
+        <!-- AI & LLM Orchestration (LangChain4j Core & Ollama Integration) -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
@@ -37,14 +38,21 @@
             <version>${langchain4j.version}</version>
         </dependency>
 
-        <!-- Google Guice DI -->
+        <!-- Text Processing & Similarity Utilities -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-text</artifactId>
+            <version>${commons.text.version}</version>
+        </dependency>
+
+        <!-- Dependency Injection (Google Guice) -->
         <dependency>
             <groupId>com.google.inject</groupId>
             <artifactId>guice</artifactId>
             <version>${guice.version}</version>
         </dependency>
 
-        <!-- Hibernate 6 + HikariCP + MS SQL JDBC + P6Spy -->
+        <!-- Persistence, Connection Pooling, JDBC Driver & SQL Telemetry -->
         <dependency>
             <groupId>org.hibernate.orm</groupId>
             <artifactId>hibernate-core</artifactId>
@@ -55,11 +63,11 @@
             <artifactId>hibernate-hikaricp</artifactId>
             <version>${hibernate.version}</version>
         </dependency>
-		<dependency>
-    		<groupId>com.zaxxer</groupId>
-    		<artifactId>HikariCP</artifactId>
-    		<version>5.1.0</version>
-		</dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.1.0</version>
+        </dependency>
         <dependency>
             <groupId>com.microsoft.sqlserver</groupId>
             <artifactId>mssql-jdbc</artifactId>
@@ -71,19 +79,19 @@
             <version>3.9.1</version>
         </dependency>
 
-        <!-- Jackson YAML -->
+        <!-- Configuration & Data Serialization (Jackson YAML) -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>
             <version>${jackson.version}</version>
         </dependency>
 
-        <!-- Logging (Log4j2 + SLF4J) -->
+        <!-- Structured Logging Facade & Implementation (SLF4J + Log4j2) -->
         <dependency>
-		    <groupId>org.slf4j</groupId>
-    		<artifactId>slf4j-api</artifactId>
-    		<version>${slf4j-api.version}</version>
-		</dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j-api.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-slf4j2-impl</artifactId>
@@ -95,7 +103,7 @@
             <version>${log4j2.version}</version>
         </dependency>
 
-        <!-- Lombok -->
+        <!-- Compile-Time Boilerplate Reduction (Lombok) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -103,6 +111,7 @@
             <scope>provided</scope>
         </dependency>
     </dependencies>
+
 
     <build>
         <finalName>${project.artifactId}</finalName>

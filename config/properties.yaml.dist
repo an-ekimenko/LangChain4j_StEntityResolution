@@ -18,6 +18,6 @@ space_type:
     temperature: 0.0
     num_ctx: 1536
     batch_size: 10
-    timeout_seconds: 300
+    timeout_seconds: 600
     max_retries: 3
 

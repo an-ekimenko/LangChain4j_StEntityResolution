@@ -1,10 +1,7 @@
 package by.beloil.ai.mdm.service;
 
 import by.beloil.ai.mdm.config.AppConfig;
-import by.beloil.ai.mdm.model.GoodsSpaceTypeEntity;
-import by.beloil.ai.mdm.model.UnitDictionaryEntity;
-import by.beloil.ai.mdm.model.UnitGroup;
-import by.beloil.ai.mdm.model.UnitNormalizationResult;
+import by.beloil.ai.mdm.model.*;
 import by.beloil.ai.mdm.repository.MdmUnitRepository;
 import com.google.inject.Inject;
 import lombok.RequiredArgsConstructor;
@@ -18,11 +15,15 @@ import java.util.stream.Collectors;
  * <p>
  * The pipeline performs the following steps:
  * <ol>
- *     <li>Loads the existing normalization dictionary from {@code [dwbeloil].[dbo].[MDM_Unit_Dictionary]}.</li>
- *     <li>Fetches distinct raw unit spellings from the source view and filters out already mapped variants.</li>
- *     <li>Classifies new variants in configured batch sizes using a local LLM and validates them with a numeric guardrail.</li>
- *     <li>Persists newly discovered mapping rules back to the MDM dictionary.</li>
- *     <li>Computes the delta of wholesale goods records requiring unit substitution and upserts them into {@code dbo.GoodsWholesale_AISpaceType}.</li>
+ *     <li>Loads all dictionary entries from {@code [dwbeloil].[dbo].[MDM_Unit_Dictionary]}, separating
+ *         previously processed keys (to avoid redundant LLM calls) from active verified rules.</li>
+ *     <li>Fetches distinct raw unit spellings from the source view and isolates unseen variants.</li>
+ *     <li>Classifies new variants in batches via an LLM agent, enforces structural constraints via
+ *         {@link NumericGuardrail}, and runs multi-stage validation ({@link MappingValidationService})
+ *         with quarantine routing for suspicious mappings.</li>
+ *     <li>Persists newly evaluated rules (both {@code AUTO_VERIFIED} and {@code NEEDS_REVIEW}) to the dictionary.</li>
+ *     <li>Computes the delta of wholesale goods records requiring substitution using only active rules
+ *         and batch-upserts them into {@code dbo.GoodsWholesale_AISpaceType}.</li>
  * </ol>
  */
 @Slf4j
@@ -32,38 +33,56 @@ public class EntityResolutionPipeline {
     private final MdmUnitRepository repository;
     private final UnitNormalizerAgent agent;
     private final NumericGuardrail guardrail;
+    private final MappingValidationService validationService;
     private final AppConfig appConfig;
 
     /**
-     * Executes the end-to-end unit normalization and entity resolution workflow against the given source view.
+     * Executes the end-to-end unit normalization and entity resolution workflow against the specified source view.
      *
      * @param sourceViewName name of the database view containing raw wholesale goods records
      * @return number of normalized records persisted to {@code dbo.GoodsWholesale_AISpaceType}
      */
     public int execute(String sourceViewName) {
-        // 1. Load the accumulated dictionary from [dwbeloil].[dbo].[MDM_Unit_Dictionary]
-        Map<String, String> dictionary = repository.loadDictionary();
-        Set<String> existingCanonicals = dictionary.values().stream()
+        // 1. Load all dictionary entries from [dwbeloil].[dbo].[MDM_Unit_Dictionary]
+        List<UnitDictionaryEntity> allEntries = repository.loadAllDictionaryEntries();
+
+        // All known raw keys (including NEEDS_REVIEW and REJECTED) to prevent re-sending them to the LLM
+        Set<String> allKnownDirtyKeys = allEntries.stream()
+                .map(UnitDictionaryEntity::getDirtyName)
                 .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        // Only approved/auto-verified rules used for actual substitution in GoodsWholesale_AISpaceType
+        Map<String, String> activeDictionary = allEntries.stream()
+                .filter(e -> e.getStatus() == DictionaryStatus.AUTO_VERIFIED || e.getStatus() == DictionaryStatus.APPROVED)
+                .filter(e -> e.getDirtyName() != null && e.getCanonicalName() != null)
+                .collect(Collectors.toMap(
+                        UnitDictionaryEntity::getDirtyName,
+                        UnitDictionaryEntity::getCanonicalName,
+                        (existing, replacement) -> existing
+                ));
+
+        // Set of already approved canonical designations passed into the LLM context
+        Set<String> existingCanonicals = activeDictionary.values().stream()
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toCollection(TreeSet::new));
 
-        // 2. Fetch distinct st_Name values from the view and filter only new variants (trimmed)
+        // 2. Fetch distinct st_Name values from the view and filter only completely unseen variants
         List<String> distinctRawUnits = repository.fetchDistinctDirtyUnits(sourceViewName);
         List<String> newTrimmedUnits = distinctRawUnits.stream()
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .distinct()
-                .filter(trimmed -> !dictionary.containsKey(trimmed))
+                .filter(trimmed -> !allKnownDirtyKeys.contains(trimmed))
                 .sorted()
                 .toList();
 
         log.info("Total unique UoMs in view: {}. New variants (missing from dictionary) for LLM: {}",
                 distinctRawUnits.size(), newTrimmedUnits.size());
 
-        // 3. Classify new variants in batches via the local LLM
+        // 3. Classify new variants in batches, pass through the guardrail, and run multi-stage validation
         if (!newTrimmedUnits.isEmpty()) {
             int batchSize = Math.max(1, appConfig.getSpaceType().getLlm().getBatchSize());
             int totalBatches = (int) Math.ceil((double) newTrimmedUnits.size() / batchSize);
@@ -82,6 +101,7 @@ public class EntityResolutionPipeline {
                     continue;
                 }
 
+                // Strict structural filter (numeric quantities + dimensions + container anchor keywords)
                 List<UnitGroup> verifiedGroups = guardrail.validateAndSplit(llmResult.groups());
 
                 for (UnitGroup group : verifiedGroups) {
@@ -92,16 +112,26 @@ public class EntityResolutionPipeline {
                     if (canonical.isEmpty()) {
                         continue;
                     }
-                    existingCanonicals.add(canonical);
+                    boolean isKnownCanonical = existingCanonicals.contains(canonical);
 
                     for (String variant : group.variants()) {
                         if (variant == null) {
                             continue;
                         }
                         String cleanVariant = variant.trim();
-                        if (!cleanVariant.isEmpty() && !dictionary.containsKey(cleanVariant)) {
-                            dictionary.put(cleanVariant, canonical);
-                            newDictEntries.add(new UnitDictionaryEntity(cleanVariant, canonical));
+                        if (!cleanVariant.isEmpty() && !allKnownDirtyKeys.contains(cleanVariant)) {
+                            // Multi-stage pair verification (Regex + Jaro-Winkler + LLM-as-a-Judge)
+                            UnitDictionaryEntity validatedEntity = validationService.validateAndBuildEntity(
+                                    cleanVariant, canonical, isKnownCanonical);
+
+                            allKnownDirtyKeys.add(cleanVariant);
+                            newDictEntries.add(validatedEntity);
+
+                            // Add only auto-verified rules to the active substitution map
+                            if (validatedEntity.getStatus() == DictionaryStatus.AUTO_VERIFIED) {
+                                activeDictionary.put(cleanVariant, canonical);
+                                existingCanonicals.add(canonical);
+                            }
                         }
                     }
                 }
@@ -109,12 +139,17 @@ public class EntityResolutionPipeline {
 
             if (!newDictEntries.isEmpty()) {
                 repository.saveNewDictionaryEntries(newDictEntries);
-                log.info("Added {} new rules to the MDM_Unit_Dictionary table.", newDictEntries.size());
+                long autoApproved = newDictEntries.stream()
+                        .filter(e -> e.getStatus() == DictionaryStatus.AUTO_VERIFIED).count();
+                long quarantined = newDictEntries.size() - autoApproved;
+                log.info("Added {} new entries to MDM_Unit_Dictionary (AUTO_VERIFIED: {}, NEEDS_REVIEW: {}).",
+                        newDictEntries.size(), autoApproved, quarantined);
             }
         }
 
         // 4. Second pass: select only the delta of records (UIDDocument, Line, DateStart) requiring substitution
-        List<GoodsSpaceTypeEntity> recordsToFix = repository.fetchRecordsRequiringNormalization(sourceViewName, dictionary);
+        List<GoodsSpaceTypeEntity> recordsToFix = repository.fetchRecordsRequiringNormalization(
+                sourceViewName, activeDictionary);
         log.info("Found {} records requiring normalization for GoodsWholesale_AISpaceType.", recordsToFix.size());
 
         if (!recordsToFix.isEmpty()) {

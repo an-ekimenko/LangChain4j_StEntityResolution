@@ -2,6 +2,8 @@ package by.beloil.ai.mdm.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -21,7 +23,6 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UnitDictionaryEntity {
-
     /**
      * Original, unnormalized unit of measurement spelling (primary key).
      */
@@ -34,4 +35,19 @@ public class UnitDictionaryEntity {
      */
     @Column(name = "CanonicalName", length = 150)
     private String canonicalName;
+    
+    /**
+     * Moderation and verification status of the mapping rule (defaults to {@link DictionaryStatus#AUTO_VERIFIED}).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "Status", length = 20, nullable = false)
+    private DictionaryStatus status = DictionaryStatus.AUTO_VERIFIED;
+    
+    /**
+     * Diagnostic explanation or audit verdict detailing why the mapping rule was automatically verified,
+     * quarantined for manual review, or rejected.
+     */
+    @Column(name = "ValidationReason", length = 255)
+    private String validationReason;
+
 }

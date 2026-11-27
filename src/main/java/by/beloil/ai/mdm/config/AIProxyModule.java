@@ -4,6 +4,8 @@ import by.beloil.ai.mdm.model.GoodsSpaceTypeEntity;
 import by.beloil.ai.mdm.model.UnitDictionaryEntity;
 import by.beloil.ai.mdm.service.NumericGuardrail;
 import by.beloil.ai.mdm.service.UnitNormalizerAgent;
+import by.beloil.ai.mdm.service.UnitVerifierAgent;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.google.inject.AbstractModule;
@@ -103,6 +105,22 @@ public class AIProxyModule extends AbstractModule {
     public NumericGuardrail provideNumericGuardrail() {
         return new NumericGuardrail();
     }
+    
+    /**
+     * Creates the LangChain4j declarative AI service proxy implementing {@link UnitVerifierAgent}
+     * used for secondary LLM-as-a-Judge semantic auditing of proposed unit mappings.
+     *
+     * @param model underlying chat language model used for verification inference
+     * @return singleton proxy instance of {@link UnitVerifierAgent}
+     */
+    @Provides
+    @Singleton
+    public UnitVerifierAgent provideUnitVerifierAgent(ChatLanguageModel model) {
+        return AiServices.builder(UnitVerifierAgent.class)
+                .chatLanguageModel(model)
+                .build();
+    }
+
 }
 
 

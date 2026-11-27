@@ -8,12 +8,17 @@ import com.google.inject.Inject;
 import lombok.RequiredArgsConstructor;
 
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Repository responsible for reading and persisting Master Data Management (MDM)
- * unit normalization dictionaries and resolved wholesale goods space type records.
+ * unit normalization rules and resolved wholesale goods space type overrides.
  */
 @RequiredArgsConstructor(onConstructor_ = @Inject)
 public class MdmUnitRepository {
@@ -21,28 +26,23 @@ public class MdmUnitRepository {
     private final HibernateBatchExecutor dbExecutor;
 
     /**
-     * Loads the entire unit normalization dictionary from the database into an in-memory map.
+     * Loads all entries from {@code [dwbeloil].[dbo].[MDM_Unit_Dictionary]} in a single query
+     * so the pipeline can partition them into a cache of all processed keys and a map of active rules.
      *
-     * @return map associating raw unit spellings ({@code DirtyName}) with standardized names ({@code CanonicalName})
+     * @return complete list of {@link UnitDictionaryEntity} records
      */
-    public Map<String, String> loadDictionary() {
-        return dbExecutor.executeRead("loadDictionary", session -> {
-            List<UnitDictionaryEntity> list = session
-                    .createQuery("FROM UnitDictionaryEntity", UnitDictionaryEntity.class)
-                    .getResultList();
-            Map<String, String> map = new HashMap<>(list.size());
-            for (UnitDictionaryEntity entity : list) {
-                map.put(entity.getDirtyName(), entity.getCanonicalName());
-            }
-            return map;
-        });
+    public List<UnitDictionaryEntity> loadAllDictionaryEntries() {
+        return dbExecutor.executeRead("loadAllDictionaryEntries", session ->
+                session.createQuery("FROM UnitDictionaryEntity", UnitDictionaryEntity.class)
+                       .getResultList()
+        );
     }
 
     /**
-     * Fetches all distinct, non-null raw unit of measurement names from the specified source view.
+     * Retrieves all distinct, non-null raw {@code st_Name} unit values from the specified source view.
      *
      * @param sourceViewName name of the database view containing raw wholesale goods data
-     * @return list of distinct raw {@code st_Name} strings
+     * @return list of distinct raw unit strings
      */
     public List<String> fetchDistinctDirtyUnits(String sourceViewName) {
         return dbExecutor.executeRead("fetchDistinctDirtyUnits", session -> {
@@ -52,24 +52,29 @@ public class MdmUnitRepository {
     }
 
     /**
-     * Batch-persists newly discovered unit mapping rules into {@code dbo.MDM_Unit_Dictionary}.
+     * Batch-persists newly discovered normalization rules (including {@code Status} and {@code ValidationReason})
+     * into {@code dbo.MDM_Unit_Dictionary}.
      *
-     * @param entries list of new dictionary entities to insert or update
+     * @param entries list of new dictionary entities to save
      */
     public void saveNewDictionaryEntries(List<UnitDictionaryEntity> entries) {
         dbExecutor.saveBatch("saveNewDictionaryEntries", entries);
     }
 
     /**
-     * Identifies source records whose raw unit spelling differs from the resolved canonical name
-     * and computes the delta of entities requiring insertion or update in {@code dbo.GoodsWholesale_AISpaceType}.
+     * Selects only the delta of source records ({@code UIDDocument}, {@code Line}, {@code DateStart}) where:
+     * <ol>
+     *     <li>The raw {@code st_Name} differs from the active canonical name in the dictionary; and</li>
+     *     <li>The target table {@code dbo.GoodsWholesale_AISpaceType} either lacks a record or holds an outdated
+     *         canonical value or source timestamp.</li>
+     * </ol>
      *
-     * @param sourceViewName name of the source database view
-     * @param dictionary     in-memory map of raw unit spellings to canonical designations
-     * @return list of {@link GoodsSpaceTypeEntity} records that need to be persisted or updated
+     * @param sourceViewName   name of the source database view
+     * @param activeDictionary map of approved/auto-verified raw unit spellings to canonical designations
+     * @return list of {@link GoodsSpaceTypeEntity} records requiring insertion or update
      */
     public List<GoodsSpaceTypeEntity> fetchRecordsRequiringNormalization(
-            String sourceViewName, Map<String, String> dictionary) {
+            String sourceViewName, Map<String, String> activeDictionary) {
 
         return dbExecutor.executeRead("fetchRecordsRequiringNormalization", session -> {
             String sql = """
@@ -91,13 +96,14 @@ public class MdmUnitRepository {
                 String existingOverride = (String) row[4];
                 LocalDateTime existingDateStart = toLocalDateTime(row[5]);
 
-                String canonical = dictionary.get(rawStName.trim());
+                String canonical = activeDictionary.get(rawStName.trim());
 
-                // Skip if no mapping exists or if the raw value already matches the canonical form
+                // Skip if the value is not present among active rules or already matches the canonical form
                 if (canonical == null || rawStName.equals(canonical)) {
                     continue;
                 }
-                // Skip if the target table already holds the exact same canonical value and source timestamp
+
+                // Skip if the target override table already stores the up-to-date canonical value and timestamp
                 if (canonical.equals(existingOverride) && Objects.equals(sourceDateStart, existingDateStart)) {
                     continue;
                 }
@@ -113,7 +119,7 @@ public class MdmUnitRepository {
     }
 
     /**
-     * Batch-persists normalized wholesale goods records into {@code dbo.GoodsWholesale_AISpaceType}.
+     * Batch-persists (INSERT/UPDATE) normalized records into {@code [dwbeloil].[dbo].[GoodsWholesale_AISpaceType]}.
      *
      * @param records list of normalized entities to save
      */
@@ -145,10 +151,9 @@ public class MdmUnitRepository {
             if (trimmed.isEmpty()) {
                 return null;
             }
-            // Handle compact SAP BW 'yyyyMMdd' date format (e.g., '20261125')
+            // Handle compact SAP BW 'yyyyMMdd' date format (e.g., '20261126')
             if (trimmed.length() == 8 && trimmed.chars().allMatch(Character::isDigit)) {
-                return java.time.LocalDate.parse(trimmed, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
-                        .atStartOfDay();
+                return LocalDate.parse(trimmed, DateTimeFormatter.BASIC_ISO_DATE).atStartOfDay();
             }
             // Handle standard SQL 'yyyy-MM-dd HH:mm:ss' or ISO datetime formats
             String normalized = trimmed.replace(' ', 'T');
@@ -156,5 +161,5 @@ public class MdmUnitRepository {
         }
         throw new IllegalArgumentException("Unexpected date type returned from database: " + dbValue.getClass().getName());
     }
-
 }
+
