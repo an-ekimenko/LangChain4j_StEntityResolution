@@ -62,6 +62,21 @@ Instead of mutating volatile staging tables, this service maintains a lightweigh
 
 ## 📂 Project Structure & Component Responsibilities
 
+The project is structured under `LangChain4j_StEntityResolution/` with configuration templates, exchange status files, core Java source code, and resources:
+
+* **`config/`**: Contains `properties.yaml.dist` (source views, DB retry budgets, Ollama parameters) and `Hibernate.cfg.xml.dist` (MS SQL Server connection with HikariCP and P6Spy).
+* **`exchange/`**: Features `result.yaml` for execution status receipts used by external orchestrators like Airflow or Control-M.
+* **`src/main/java/by/beloil/ai/mdm/`**: 
+  * `config/`: App configuration mapping (`AppConfig.java`) and Google Guice 7 dependency injection bindings (`AIProxyModule.java`).
+  * `hibernate/`: Transactional session and batch management (`HibernateBatchExecutor.java`).
+  * `model/`: Data models and enums including `DictionaryStatus`, `UnitGroup`, `UnitNormalizationResult`, `VerificationVerdict`, JPA entities (`UnitDictionaryEntity`, `GoodsSpaceTypeEntity`), and composite keys (`GoodsSpaceTypePK`).
+  * `repository/`: SQL query execution and delta loading (`MdmUnitRepository.java`).
+  * `service/`: Core business logic containing LangChain4j declarative AI services (`UnitNormalizerAgent.java`, `UnitVerifierAgent.java`), `NumericGuardrail.java`, `MappingValidationService.java`, and the 4-step `EntityResolutionPipeline.java`.
+  * Root launcher: `MainLauncher.java` for CLI bootstrap and receipt generation.
+* **`src/main/resources/`**: Logging (`Log4j2.xml`) and SQL interception (`spy.properties`).
+* **`pom.xml`**: Maven build configuration.
+
+
 ```text
 LangChain4j_StEntityResolution/
 ├── config/
@@ -97,10 +112,11 @@ LangChain4j_StEntityResolution/
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠 Tech Stack
 
 * **Core & DI:** Java 17, Google Guice 7, Lombok
-* **AI & Inference:** LangChain4j (`1.0.0-beta2`), Ollama (`qwen2.5:7b`, JSON Schema Structured Outputs)
+* **AI & Inference:** LangChain4j (`1.0.0-beta2`), Ollama (`qwen2.5:7b`, JSON Schema Structured Outputs, LLM-as-a-Judge)
+* **Validation & NLP Metrics:** Apache Commons Text (`JaroWinklerSimilarity`), Regex Composite Guardrails
 * **Persistence & Pooling:** Hibernate ORM 6, HikariCP, MS SQL Server JDBC, P6Spy
 * **Serialization & Logging:** Jackson YAML, Log4j2 / SLF4J
 
