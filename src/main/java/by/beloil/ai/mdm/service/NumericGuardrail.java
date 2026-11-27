@@ -17,6 +17,10 @@ import java.util.regex.Pattern;
 @Slf4j
 public class NumericGuardrail {
 
+    // Scale multiplier prefixes that alter unit magnitude by orders of 10 (must never be dropped)
+    private static final List<String> SCALE_MULTIPLIERS = List.of("тыс", "млн", "млрд");
+
+	
     // Captures a number (integer or decimal with dot/comma) and an optional trailing unit/dimension token
     private static final Pattern NUMBER_AND_UNIT_PATTERN =
             Pattern.compile("(\\d+(?:[.,]\\d+)?)\\s*([\\p{L}0-9³²]+\\.?)?");
@@ -90,16 +94,15 @@ public class NumericGuardrail {
     }
 
     /**
-     * Builds a composite structural signature in the format: {@code [container_anchor]#[number:normalized_unit]}.
+     * Builds a composite structural signature in the format:
+     * {@code [scale_multiplier]:[container_anchor]#[number:normalized_unit]}.
      * <p>
      * Examples:
      * <ul>
-     *     <li>{@code "туб 400 мл"}     &rarr; {@code "туб#400:мл"}</li>
-     *     <li>{@code "туб 400 г"}      &rarr; {@code "туб#400:г"}</li>
-     *     <li>{@code "туб 400 гр"}     &rarr; {@code "туб#400:г"}</li>
-     *     <li>{@code "канистра 4,5 л"} &rarr; {@code "канистра#4.5:л"}</li>
-     *     <li>{@code "канистра 4.5л"}  &rarr; {@code "канистра#4.5:л"}</li>
-     *     <li>{@code "кг."}            &rarr; {@code "#"}</li>
+     *     <li>{@code "тыс.шт."}       &rarr; {@code "тыс:#"}</li>
+     *     <li>{@code "шт."}           &rarr; {@code ":#"}</li>
+     *     <li>{@code "туб 400 мл"}    &rarr; {@code ":туб#400:мл"}</li>
+     *     <li>{@code "канистра 4,5 л"} &rarr; {@code ":канистра#4.5:л"}</li>
      * </ul>
      *
      * @param text input unit string
@@ -107,11 +110,20 @@ public class NumericGuardrail {
      */
     private String buildFullSignature(String text) {
         if (text == null) {
-            return "#";
+            return ":#";
         }
         String lower = text.toLowerCase(Locale.ROOT).trim();
 
-        // 1. Detect packaging/container anchor keyword
+        // 1. Detect scale multiplier prefixes (e.g., "тыс", "млн")
+        String scalePrefix = "";
+        for (String multiplier : SCALE_MULTIPLIERS) {
+            if (lower.contains(multiplier)) {
+                scalePrefix = multiplier;
+                break;
+            }
+        }
+
+        // 2. Detect packaging/container anchor keyword
         String containerAnchor = "";
         for (String anchor : CONTAINER_ANCHORS) {
             if (lower.contains(anchor)) {
@@ -120,7 +132,7 @@ public class NumericGuardrail {
             }
         }
 
-        // 2. Extract and normalize all "number + dimension" pairs
+        // 3. Extract and normalize all "number + dimension" pairs
         Matcher matcher = NUMBER_AND_UNIT_PATTERN.matcher(lower);
         List<String> numTokens = new ArrayList<>();
         while (matcher.find()) {
@@ -138,8 +150,9 @@ public class NumericGuardrail {
             numTokens.add(number + ":" + normalizedUnit);
         }
 
-        return containerAnchor + "#" + String.join("|", numTokens);
+        return scalePrefix + ":" + containerAnchor + "#" + String.join("|", numTokens);
     }
+
 
     /**
      * Selects the shortest trimmed variant as a deterministic fallback canonical name.

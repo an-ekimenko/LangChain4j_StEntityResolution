@@ -1,5 +1,6 @@
 ---
-status: "SUCCESS"
-timestamp: "2026-11-26T10:44:43.2887267"
+status: "FAILED"
+timestamp: "2026-11-27T15:38:51.0014951"
 records_upserted: 0
-duration_ms: 36784
+duration_ms: 568334
+error: "java.net.ConnectException"

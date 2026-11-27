@@ -8,7 +8,7 @@ space_type:
   # max_timeout_ms     - Total maximum time budget (in ms) allocated to write data to DB
   # initial_timeout_ms - Base delay interval (in ms) before the first retry attempt
   db_retry:
-    max_timeout_ms: 300000
+    max_timeout_ms: 60000
     initial_timeout_ms: 10000
 
   # Local LLM inference settings (Ollama / vLLM endpoint)
@@ -17,7 +17,6 @@ space_type:
     model_name: "qwen2.5:7b"
     temperature: 0.0
     num_ctx: 1536
-    batch_size: 10
-    timeout_seconds: 600
+    batch_size: 5
+    timeout_seconds: 1800
     max_retries: 3
-

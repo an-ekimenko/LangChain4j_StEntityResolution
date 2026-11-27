@@ -76,10 +76,11 @@ public class AIProxyModule extends AbstractModule {
                 .temperature(llm.getTemperature())
                 .numCtx(llm.getNumCtx())
                 .timeout(Duration.ofSeconds(llm.getTimeoutSeconds()))
-                .supportedCapabilities(Set.of(Capability.RESPONSE_FORMAT_JSON_SCHEMA))
+                .format("json")
                 .maxRetries(llm.getMaxRetries())
                 .build();
     }
+
 
     /**
      * Creates the LangChain4j declarative AI service proxy implementing {@link UnitNormalizerAgent}.

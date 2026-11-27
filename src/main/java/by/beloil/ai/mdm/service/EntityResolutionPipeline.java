@@ -86,48 +86,49 @@ public class EntityResolutionPipeline {
         if (!newTrimmedUnits.isEmpty()) {
             int batchSize = Math.max(1, appConfig.getSpaceType().getLlm().getBatchSize());
             int totalBatches = (int) Math.ceil((double) newTrimmedUnits.size() / batchSize);
-            List<UnitDictionaryEntity> newDictEntries = new ArrayList<>();
 
             for (int i = 0; i < newTrimmedUnits.size(); i += batchSize) {
                 int currentBatchNum = (i / batchSize) + 1;
                 List<String> batch = newTrimmedUnits.subList(i, Math.min(i + batchSize, newTrimmedUnits.size()));
+                List<UnitDictionaryEntity> batchEntries = new ArrayList<>();
 
                 log.info("Sending batch {}/{} to LLM (size: {}): {}",
                         currentBatchNum, totalBatches, batch.size(), batch);
 
-                UnitNormalizationResult llmResult = agent.normalizeBatch(existingCanonicals, batch);
+                Set<String> relevantCanonicals = existingCanonicals.stream()
+                        .filter(c -> c.length() <= 8 || batch.stream().anyMatch(b ->
+                                b.split("\\s+")[0].equalsIgnoreCase(c.split("\\s+")[0])))
+                        .collect(Collectors.toCollection(TreeSet::new));
+
+
+                UnitNormalizationResult llmResult = agent.normalizeBatch(relevantCanonicals, batch);
+
                 if (llmResult == null || llmResult.groups() == null) {
                     log.warn("LLM returned an empty result for batch {}/{}", currentBatchNum, totalBatches);
                     continue;
                 }
 
-                // Strict structural filter (numeric quantities + dimensions + container anchor keywords)
+                // Enforce strict structural rules (numbers, dimensions, container anchors)
                 List<UnitGroup> verifiedGroups = guardrail.validateAndSplit(llmResult.groups());
 
                 for (UnitGroup group : verifiedGroups) {
-                    if (group.canonicalName() == null || group.variants() == null) {
-                        continue;
-                    }
+                    if (group.canonicalName() == null || group.variants() == null) continue;
                     String canonical = group.canonicalName().trim();
-                    if (canonical.isEmpty()) {
-                        continue;
-                    }
+                    if (canonical.isEmpty()) continue;
+
                     boolean isKnownCanonical = existingCanonicals.contains(canonical);
 
                     for (String variant : group.variants()) {
-                        if (variant == null) {
-                            continue;
-                        }
+                        if (variant == null) continue;
                         String cleanVariant = variant.trim();
                         if (!cleanVariant.isEmpty() && !allKnownDirtyKeys.contains(cleanVariant)) {
-                            // Multi-stage pair verification (Regex + Jaro-Winkler + LLM-as-a-Judge)
+                            // Run multi-stage validation (Jaro-Winkler + LLM-as-a-Judge)
                             UnitDictionaryEntity validatedEntity = validationService.validateAndBuildEntity(
                                     cleanVariant, canonical, isKnownCanonical);
 
                             allKnownDirtyKeys.add(cleanVariant);
-                            newDictEntries.add(validatedEntity);
+                            batchEntries.add(validatedEntity);
 
-                            // Add only auto-verified rules to the active substitution map
                             if (validatedEntity.getStatus() == DictionaryStatus.AUTO_VERIFIED) {
                                 activeDictionary.put(cleanVariant, canonical);
                                 existingCanonicals.add(canonical);
@@ -135,17 +136,16 @@ public class EntityResolutionPipeline {
                         }
                     }
                 }
-            }
 
-            if (!newDictEntries.isEmpty()) {
-                repository.saveNewDictionaryEntries(newDictEntries);
-                long autoApproved = newDictEntries.stream()
-                        .filter(e -> e.getStatus() == DictionaryStatus.AUTO_VERIFIED).count();
-                long quarantined = newDictEntries.size() - autoApproved;
-                log.info("Added {} new entries to MDM_Unit_Dictionary (AUTO_VERIFIED: {}, NEEDS_REVIEW: {}).",
-                        newDictEntries.size(), autoApproved, quarantined);
+                // Checkpoint: persist each batch immediately to the DB so progress is not lost on failures
+                if (!batchEntries.isEmpty()) {
+                    repository.saveNewDictionaryEntries(batchEntries);
+                    log.info("Batch {}/{}: saved {} entries to MDM_Unit_Dictionary.",
+                            currentBatchNum, totalBatches, batchEntries.size());
+                }
             }
         }
+
 
         // 4. Second pass: select only the delta of records (UIDDocument, Line, DateStart) requiring substitution
         List<GoodsSpaceTypeEntity> recordsToFix = repository.fetchRecordsRequiringNormalization(
