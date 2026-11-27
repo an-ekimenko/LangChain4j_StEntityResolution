@@ -12,7 +12,8 @@ The service resolves and normalizes unstandardized units of measurement (`st_Nam
 Legacy ERP systems (1C) periodically overwrite staging tables (`GoodsWholesale` and `SpaceType`) every few hours, wiping out any manual or script-based fixes. Meanwhile, unstandardized text variants (`"кг"`, `"кг."`, `"шт."`, `"штука"`, `"канистра 4,5 л"`, `"канистра 4.5л"`) fragment analytical reporting in **SAP BW/4HANA**.
 
 ### The Solution: Non-Destructive Enrichment Layer
-Instead of mutating volatile staging tables, this service maintains a lightweight **exception-only override table** (`GoodsWholesale_AISpaceType`) backed by a persistent **AI knowledge cache** (`MDM_Unit_Dictionary`):
+
+Instead of mutating volatile staging tables, this service maintains a lightweight **exception-only override table** (`GoodsWholesale_AISpaceType`) backed by a moderated **AI knowledge cache** (`MDM_Unit_Dictionary`):
 
 ```text
 [1C ERP (3h Full Overwrite)]
@@ -27,12 +28,17 @@ Instead of mutating volatile staging tables, this service maintains a lightweigh
        │                             [LangChain4j + Ollama (qwen2.5:7b)]
        │                                            │ (Structured JSON)
        │                                            ▼
-       │                                   [NumericGuardrail] ──► Splits distinct numbers (175 кг != 176 кг)
+       │                                   [NumericGuardrail] ──► Splits distinct numbers, dimensions & packaging
        │                                            │
        │                                            ▼
-       │                             [Save Rules to MDM_Unit_Dictionary]
+       │                             [MappingValidationService] ──► Jaro-Winkler + LLM-as-a-Judge Audit
+       │                                     │              │
+       │                          [AUTO_VERIFIED]    [NEEDS_REVIEW]
+       │                                 │                  │
+       │                                 ▼                  ▼
+       │                      [Active Rules in MDM_Unit_Dictionary] (Quarantined until manual approval)
        │
-       └──► (2) Delta Lookup (LEFT JOIN) ──► Identify rows where st_Name != CanonicalName
+       └──► (2) Delta Lookup (LEFT JOIN) ──► Identify rows where st_Name != Active CanonicalName
                                                     │
                                                     ▼
                                      [GoodsWholesale_AISpaceType] (Stores ONLY exceptions: UIDDocument, Line, SpaceType, DateStart)
@@ -52,55 +58,54 @@ Instead of mutating volatile staging tables, this service maintains a lightweigh
 
 ## 🛡️ Key Engineering Features
 
-* **Incremental Dictionary Caching:** Deduplicates unit names prior to LLM processing.
-* **Structured AI Outputs:** Employs LangChain4j with deterministic settings and strict JSON Schema enforcement on `qwen2.5:7b`.
-* **Deterministic Guardrails:** Utilizes composite signatures to handle anomalies across numbers, dimensions, and packaging.
-* **Idempotent Delta Persistence:** Executes delta checks via `HibernateBatchExecutor` with backoff and jitter.
-* **Shared-Dependency Deployment Topology:** Manages classpath dependencies and generates YAML execution receipts.
+* **Incremental Dictionary Caching & Quarantine (`MDM_Unit_Dictionary`):** Deduplicates incoming unit names against all cached records prior to LLM inference, isolating unverified or disputed mappings in a `NEEDS_REVIEW` quarantine state without impacting downstream analytics.
+* **Structured AI Outputs (`AiServices`):** Uses LangChain4j declarative interfaces with `temperature = 0.0` and strict JSON Schema enforcement (`Capability.RESPONSE_FORMAT_JSON_SCHEMA`) on local inference (`qwen2.5:7b`).
+* **Deterministic Composite Guardrails (`NumericGuardrail`):** Audits LLM clusters via composite regex signatures (`[container_anchor]#[number:normalized_unit]`), preventing numeric collisions (`175 кг` ≠ `176 кг`), dimension mix-ups (`400 мл` ≠ `400 г`), and packaging loss (`канистра 5 л` ≠ `л`).
+* **Multi-Stage Mapping Verification (`MappingValidationService`):** Combines lexical similarity metrics (`JaroWinklerSimilarity` via Apache Commons Text) with an isolated **LLM-as-a-Judge** verifier (`UnitVerifierAgent`) to audit non-trivial replacements before activation.
+* **Idempotent Delta Persistence & Resilience:** Executes a `LEFT JOIN` delta check prior to persistence, utilizing `HibernateBatchExecutor` with monotonic-clock (`System.nanoTime()`) exponential backoff and jitter.
+* **Shared-Dependency Deployment Topology:** Excludes third-party JARs from the main artifact, routing classpath dependencies to `../dependencies/` and emitting YAML execution receipts (`exchange/result.yaml`).
+
 
 ---
 
 ## 📂 Project Structure & Component Responsibilities
 
-```text
+The project is structured under `LangChain4j_StEntityResolution/` with configuration templates, exchange status files, core Java source code, and resources:
+
+* **`config/`**: Contains `properties.yaml.dist` (incremental/full source views, DB retry budgets, Ollama parameters) and `Hibernate.cfg.xml.dist` (MS SQL Server connection with HikariCP and P6Spy).
+* **`exchange/`**: Features `result.yaml` for execution status receipts used by external orchestrators (Airflow / Control-M).
+* **`src/main/java/by/beloil/ai/mdm/`**: 
+  * `config/`: Jackson-mapped configuration model (`AppConfig.java`) and Google Guice 7 dependency injection bindings (`AIProxyModule.java`).
+  * `hibernate/`: Transactional session management, JDBC batching, and monotonic-clock exponential backoff (`HibernateBatchExecutor.java`).
+  * `model/`: Domain models and enums including `DictionaryStatus` (quarantine/approval lifecycle), `UnitGroup`, `UnitNormalizationResult`, `VerificationVerdict`, JPA entities (`UnitDictionaryEntity`, `GoodsSpaceTypeEntity`), and composite keys (`GoodsSpaceTypePK`).
+  * `repository/`: SQL delta lookup (`LEFT JOIN`), dictionary loading, and SAP BW `YYYYMMDD` date parsing (`MdmUnitRepository.java`).
+  * `service/`: Core business logic containing LangChain4j declarative AI services (`UnitNormalizerAgent.java`, `UnitVerifierAgent.java`), composite regex guardrails (`NumericGuardrail.java`), multi-stage validation (`MappingValidationService.java`), and the 4-step orchestrator (`EntityResolutionPipeline.java`).
+  * Root launcher: `MainLauncher.java` for CLI bootstrap (`fsv` flag support), explicit JVM termination, and YAML receipt generation.
+* **`src/main/resources/`**: Log4j2 configuration (`Log4j2.xml`) and P6Spy SQL mutation filter (`spy.properties`).
+* **`pom.xml`**: Maven build configuration with external `../dependencies/` runtime packaging.
+```
 LangChain4j_StEntityResolution/
-├── config/
-│   ├── properties.yaml.dist           # Template for source views, DB retry budgets, and Ollama parameters
-│   └── Hibernate.cfg.xml.dist         # Template for MS SQL Server connection (HikariCP + P6Spy)
-├── exchange/
-│   └── result.yaml                    # Execution status receipt for external orchestrators (Airflow / Control-M)
+├── config/                   # External configuration files (properties.yaml, Hibernate MS SQL)
+├── exchange/                 # Execution status receipts for external schedulers (result.yaml)
 ├── src/main/
 │   ├── java/by/beloil/ai/mdm/
-│   │   ├── config/
-│   │   │   ├── AppConfig.java         # Jackson-mapped configuration model (LLM, retry, and view settings)
-│   │   │   └── AIProxyModule.java     # Google Guice 7 DI bindings (OllamaChatModel, AiServices, SessionFactory)
-│   │   ├── hibernate/
-│   │   │   └── HibernateBatchExecutor.java # Transactional session manager, batching, and Exponential Backoff
-│   │   ├── model/
-│   │   │   ├── UnitGroup.java         # Structured Output DTO representing a canonical unit and its variants
-│   │   │   ├── UnitNormalizationResult.java # Root Structured Output wrapper for LangChain4j JSON Schema
-│   │   │   ├── UnitDictionaryEntity.java    # JPA entity for [dwbeloil].[dbo].[MDM_Unit_Dictionary]
-│   │   │   ├── GoodsSpaceTypeEntity.java    # JPA entity for [dwbeloil].[dbo].[GoodsWholesale_AISpaceType]
-│   │   │   └── GoodsSpaceTypePK.java        # Composite primary key (1C binary(17) UID + int Line)
-│   │   ├── repository/
-│   │   │   └── MdmUnitRepository.java       # Read/delta SQL queries and mapping logic
-│   │   ├── service/
-│   │   │   ├── UnitNormalizerAgent.java     # LangChain4j @SystemMessage / @UserMessage declarative AI service
-│   │   │   ├── NumericGuardrail.java        # Regex-based post-LLM guardrail preventing numeric collisions
-│   │   │   └── EntityResolutionPipeline.java # Core 4-step orchestrator (Load -> Classify -> Guard -> Upsert)
-│   │   └── MainLauncher.java          # CLI entry point, Guice bootstrap, and YAML receipt writer
-│   └── resources/
-│       ├── Log4j2.xml                 # Asynchronous/file logging configuration (app, Hibernate, P6Spy)
-│       └── spy.properties             # P6Spy SQL interception filter (logs INSERT/UPDATE/MERGE mutations)
-└── pom.xml                            # Maven build configuration with external ../dependencies/ packaging
+│   │   ├── config/           # Configuration models and DI bindings (Google Guice)
+│   │   ├── hibernate/        # Session manager, batching, and Exponential Backoff retries
+│   │   ├── model/            # JPA entities, enums, and DTOs (including LangChain4j JSON schemas)
+│   │   ├── repository/       # Native SQL delta queries and SAP BW date parsing
+│   │   ├── service/          # AI agents, entity resolution pipeline, guardrails, and LLM-as-a-Judge
+│   │   └── MainLauncher.java # CLI application entry point
+│   └── resources/            # Logging and SQL telemetry configurations (Log4j2, P6Spy)
+└── pom.xml                   # Maven build descriptor
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠 Tech Stack
 
-* **Core & DI:** Java 17, Google Guice 7, Lombok
-* **AI & Inference:** LangChain4j (`1.0.0-beta2`), Ollama (`qwen2.5:7b`, JSON Schema Structured Outputs)
+* **Core & DI:** Java 17+ *(required by LangChain4j 1.x, Google Guice 7, Hibernate 6+, immutable `record` schemas for structured LLM outputs, and LTS G1GC memory efficiency)*, Google Guice 7, Lombok
+* **AI & Inference:** LangChain4j (`1.0.0-beta2`), Ollama (`qwen2.5:7b`, JSON Schema Structured Outputs, LLM-as-a-Judge)
+* **Validation & NLP Metrics:** Apache Commons Text (`JaroWinklerSimilarity`), Regex Composite Guardrails
 * **Persistence & Pooling:** Hibernate ORM 6, HikariCP, MS SQL Server JDBC, P6Spy
 * **Serialization & Logging:** Jackson YAML, Log4j2 / SLF4J
 
