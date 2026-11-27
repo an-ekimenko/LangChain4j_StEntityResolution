@@ -58,13 +58,15 @@ Instead of mutating volatile staging tables, this service maintains a lightweigh
 
 ## 🛡️ Key Engineering Features
 
-* **Incremental Dictionary Caching & Quarantine (`MDM_Unit_Dictionary`):** Deduplicates incoming unit names against all cached records prior to LLM inference, isolating unverified or disputed mappings in a `NEEDS_REVIEW` quarantine state without impacting downstream analytics.
-* **Structured AI Outputs (`AiServices`):** Uses LangChain4j declarative interfaces with `temperature = 0.0` and strict JSON Schema enforcement (`Capability.RESPONSE_FORMAT_JSON_SCHEMA`) on local inference (`qwen2.5:7b`).
-* **Deterministic Composite Guardrails (`NumericGuardrail`):** Audits LLM clusters via composite regex signatures (`[container_anchor]#[number:normalized_unit]`), preventing numeric collisions (`175 кг` ≠ `176 кг`), dimension mix-ups (`400 мл` ≠ `400 г`), and packaging loss (`канистра 5 л` ≠ `л`).
-* **Multi-Stage Mapping Verification (`MappingValidationService`):** Combines lexical similarity metrics (`JaroWinklerSimilarity` via Apache Commons Text) with an isolated **LLM-as-a-Judge** verifier (`UnitVerifierAgent`) to audit non-trivial replacements before activation.
-* **Idempotent Delta Persistence & Resilience:** Executes a `LEFT JOIN` delta check prior to persistence, utilizing `HibernateBatchExecutor` with monotonic-clock (`System.nanoTime()`) exponential backoff and jitter.
-* **Shared-Dependency Deployment Topology:** Excludes third-party JARs from the main artifact, routing classpath dependencies to `../dependencies/` and emitting YAML execution receipts (`exchange/result.yaml`).
-
+* **Incremental Dictionary Caching & Quarantine (`MDM_Unit_Dictionary`):** Deduplicates units before LLM inference, isolating unverified mappings into a `NEEDS_REVIEW` quarantine state with `ValidationReason` audit logs.
+* **Deterministic Composite Guardrails (`NumericGuardrail`):** Validates LLM clusters using regex signatures (`[container_anchor]#[number:normalized_unit]`) to prevent numeric, dimensional, and packaging collisions.
+* **Multi-Stage Mapping Verification (`MappingValidationService`):**
+  * **Scale & Prefix Protection:** Preserves scale multipliers (`тыс`, `млн`, `млрд`) and restricts single-letter unit conversions (`"л"`, `"м"`, `"г"`, `"т"`) via a strict synonym whitelist.
+  * **Lexical & Script Auditing:** Prevents unauthorized Latin-Cyrillic substitution (`"компл"` ≠ `"comp"`), limits length inflation, and scores string similarity via `JaroWinklerSimilarity`.
+  * **LLM-as-a-Judge (`UnitVerifierAgent`):** Executes secondary AI checks on non-trivial substitutions (`DirtyName != CanonicalName`) to confirm semantic equivalence.
+* **CPU-Optimized Inference & Batch Checkpointing:** Uses native Ollama JSON mode (`.format("json")`, `temperature = 0.0`), dynamic context filtering (`relevantCanonicals`), and incremental batch persistence (`batch_size: 5`) for fault-tolerant recovery.
+* **Idempotent Delta Persistence & Resilience:** Performs pre-persistence `LEFT JOIN` delta checks backed by `HibernateBatchExecutor` with exponential backoff and jitter.
+* **Shared-Dependency Deployment Topology:** Offloads third-party JARs to `../dependencies/` and generates YAML execution receipts (`exchange/result.yaml`).
 
 ---
 
